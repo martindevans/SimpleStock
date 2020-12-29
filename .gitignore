@@ -1,0 +1,6 @@
+/.vs
+/_ReSharper.Caches
+
+/SimpleStock/bin
+/SimpleStock/obj
+/*.user
