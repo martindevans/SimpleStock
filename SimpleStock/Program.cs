@@ -16,8 +16,9 @@ namespace SimpleStock
             var provider = BuildServices();
 
             // Create DB
-            var db = provider.GetRequiredService<ApplicationDbContext>();
-            db.Database.EnsureCreated();
+            var dbf = provider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
+            using (var db = dbf.CreateDbContext())
+                db.Database.EnsureCreated();
 
             // Enter the default state (showing a list of all items)
             provider.GetRequiredService<ShowItemList>().Enter();
@@ -28,7 +29,7 @@ namespace SimpleStock
             var services = new ServiceCollection();
 
             // Add DB stuff
-            services.AddDbContext<ApplicationDbContext>(options => {
+            services.AddDbContextFactory<ApplicationDbContext>(options => {
                 options.UseSqlite("Data Source=database.sqlite;");
             });
 

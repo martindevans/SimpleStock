@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using SimpleStock.Data;
 using SimpleStock.Data.Model;
 using SimpleStock.Extensions;
@@ -10,14 +11,14 @@ namespace SimpleStock.TUI.States
     public class ShowLog
     {
         private readonly PrimaryUi _ui;
-        private readonly ApplicationDbContext _db;
+        private readonly IDbContextFactory<ApplicationDbContext> _db;
 
         private readonly Toplevel _top;
         private readonly ListView _itemList;
 
         private List<ItemWrapper> _items;
 
-        public ShowLog(PrimaryUi ui, ApplicationDbContext db)
+        public ShowLog(PrimaryUi ui, IDbContextFactory<ApplicationDbContext> db)
         {
             _ui = ui;
             _db = db;
@@ -64,19 +65,22 @@ namespace SimpleStock.TUI.States
 
         private void Refresh()
         {
-            _items = (from item in _db.Transactions.AsQueryable()
-                      orderby item.Date descending
-                      select item)
-                     .AsEnumerable()
-                     .Select(a => new ItemWrapper(_db, a))
-                     .ToList();
+            using (var db = _db.CreateDbContext())
+            {
+                _items = (from item in db.Transactions.AsQueryable()
+                          orderby item.Date descending
+                          select item)
+                         .AsEnumerable()
+                         .Select(a => new ItemWrapper(_db, a))
+                         .ToList();
 
-            _itemList.SetSource(_items);
+                _itemList.SetSource(_items);
+            }
         }
 
         private class ItemWrapper
         {
-            private readonly ApplicationDbContext _db;
+            private readonly IDbContextFactory<ApplicationDbContext> _db;
             private readonly Transaction _tsx;
 
             private StockItem? _item;
@@ -86,15 +90,18 @@ namespace SimpleStock.TUI.States
                 {
                     if (_item == null)
                     {
-                        _item = (from item in _db.Items
-                                 where item.ID == _tsx.StockItemId
-                                 select item).FirstOrDefault();
+                        using (var db = _db.CreateDbContext())
+                        {
+                            _item = (from item in db.Items
+                                     where item.ID == _tsx.StockItemId
+                                     select item).FirstOrDefault();
+                        }
                     }
                     return _item;
                 }
             }
 
-            public ItemWrapper(ApplicationDbContext db, Transaction transaction)
+            public ItemWrapper(IDbContextFactory<ApplicationDbContext> db, Transaction transaction)
             {
                 _db = db;
                 _tsx = transaction;

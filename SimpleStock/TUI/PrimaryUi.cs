@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SimpleStock.Data;
 using SimpleStock.TUI.States;
@@ -10,10 +11,10 @@ namespace SimpleStock.TUI
 {
     public class PrimaryUi
     {
-        private readonly ApplicationDbContext _db;
+        private readonly IDbContextFactory<ApplicationDbContext> _db;
         private readonly IServiceProvider _services;
 
-        public PrimaryUi(ApplicationDbContext db, IServiceProvider services)
+        public PrimaryUi(IDbContextFactory<ApplicationDbContext> db, IServiceProvider services)
         {
             _db = db;
             _services = services;
@@ -23,7 +24,7 @@ namespace SimpleStock.TUI
         {
             var i = new List<MenuBarItem> {
                 new("_File", new[] {
-                    new MenuItem("_Save", "", () => _db.SaveChanges()),
+                    new MenuItem("_Save", "", Save),
                     new MenuItem("_Options", "", OptionsModal),
                     new MenuItem("_Close", "", Application.RequestStop),
                 }),
@@ -42,6 +43,12 @@ namespace SimpleStock.TUI
             );
 
             return i.ToArray();
+        }
+
+        private void Save()
+        {
+            using (var db = _db.CreateDbContext())
+                db.SaveChanges();
         }
 
         private void OpenStockList()

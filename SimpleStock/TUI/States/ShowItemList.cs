@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SimpleStock.Data;
 using SimpleStock.Data.Model;
@@ -14,7 +15,7 @@ namespace SimpleStock.TUI.States
     public class ShowItemList
     {
         private readonly PrimaryUi _ui;
-        private readonly ApplicationDbContext _db;
+        private readonly IDbContextFactory<ApplicationDbContext> _db;
         private readonly IServiceProvider _services;
 
         private List<ItemWrapper> _items;
@@ -25,7 +26,7 @@ namespace SimpleStock.TUI.States
         private readonly Window _secondaryWindow;
         private readonly TextField _search;
 
-        public ShowItemList(PrimaryUi ui, ApplicationDbContext db, IServiceProvider services)
+        public ShowItemList(PrimaryUi ui, IDbContextFactory<ApplicationDbContext> db, IServiceProvider services)
         {
             _ui = ui;
             _db = db;
@@ -108,14 +109,17 @@ namespace SimpleStock.TUI.States
         {
             var filterStr = _search.Text.ToString();
 
-            _items = (from item in _db.Items.AsQueryable()
-                      orderby item.Manufacturer, item.ProductNumber
-                      select item)
-                     .AsEnumerable()
-                     .Select(a => new ItemWrapper(_db, a))
-                     .ToArray()
-                     .Where(a => string.IsNullOrEmpty(filterStr) || Regex.IsMatch(a.ToString(), filterStr))
-                     .ToList();
+            using (var db = _db.CreateDbContext())
+            {
+                _items = (from item in db.Items.AsQueryable()
+                          orderby item.Manufacturer, item.ProductNumber
+                          select item)
+                         .AsEnumerable()
+                         .Select(a => new ItemWrapper(_db, a))
+                         .ToArray()
+                         .Where(a => string.IsNullOrEmpty(filterStr) || Regex.IsMatch(a.ToString(), filterStr))
+                         .ToList();
+            }
 
             _itemList.SetSource(_items);
 
@@ -185,13 +189,16 @@ namespace SimpleStock.TUI.States
 
             if (result.HasValue)
             {
-                _db.Add(new Transaction {
-                    Date = DateTime.UtcNow,
-                    Delta = result.Value.Count,
-                    Message = result.Value.Message,
-                    StockItemId = item.Item.ID
-                });
-                _db.SaveChanges();
+                using (var db = _db.CreateDbContext())
+                {
+                    db.Add(new Transaction {
+                        Date = DateTime.UtcNow,
+                        Delta = result.Value.Count,
+                        Message = result.Value.Message,
+                        StockItemId = item.Item.ID
+                    });
+                    db.SaveChanges();
+                }
 
                 SelectionChanged(item);
             }
@@ -204,13 +211,16 @@ namespace SimpleStock.TUI.States
 
             if (result.HasValue)
             {
-                _db.Add(new Transaction {
-                    Date = DateTime.UtcNow,
-                    Delta = -result.Value.Count,
-                    Message = result.Value.Message,
-                    StockItemId = item.Item.ID
-                });
-                _db.SaveChanges();
+                using (var db = _db.CreateDbContext())
+                {
+                    db.Add(new Transaction {
+                        Date = DateTime.UtcNow,
+                        Delta = -result.Value.Count,
+                        Message = result.Value.Message,
+                        StockItemId = item.Item.ID
+                    });
+                    db.SaveChanges();
+                }
 
                 SelectionChanged(item);
             }
@@ -222,10 +232,14 @@ namespace SimpleStock.TUI.States
             if (result == null)
                 return;
 
-            var duplicate = (from item in _db.Items
+            StockItem? duplicate;
+            using (var db = _db.CreateDbContext())
+            {
+                duplicate = (from item in db.Items
                              where item.Manufacturer == result.Value.Manufacturer
                              where item.ProductNumber == result.Value.ProductNumber
                              select item).SingleOrDefault();
+            }
 
             if (duplicate != null)
             {
@@ -233,14 +247,17 @@ namespace SimpleStock.TUI.States
             }
             else
             {
-                _db.Add(new StockItem {
-                    DatasheetUrl = result.Value.DatasheetUrl,
-                    Description = result.Value.Description,
-                    Manufacturer = result.Value.Manufacturer,
-                    Name = result.Value.Name,
-                    ProductNumber = result.Value.ProductNumber
-                });
-                _db.SaveChanges();
+                using (var db = _db.CreateDbContext())
+                {
+                    db.Add(new StockItem {
+                        DatasheetUrl = result.Value.DatasheetUrl,
+                        Description = result.Value.Description,
+                        Manufacturer = result.Value.Manufacturer,
+                        Name = result.Value.Name,
+                        ProductNumber = result.Value.ProductNumber
+                    });
+                    db.SaveChanges();
+                }
 
                 UpdateFilter();
             }
@@ -248,15 +265,23 @@ namespace SimpleStock.TUI.States
 
         private class ItemWrapper
         {
-            private readonly ApplicationDbContext _db;
+            private readonly IDbContextFactory<ApplicationDbContext> _db;
             public StockItem Item { get; }
 
-            public int Stock =>
-                (from tsx in _db.Transactions
-                 where tsx.StockItemId == Item.ID
-                 select tsx.Delta).Sum();
+            public int Stock
+            {
+                get
+                {
+                    using (var db = _db.CreateDbContext())
+                    {
+                        return (from tsx in db.Transactions
+                                where tsx.StockItemId == Item.ID
+                                select tsx.Delta).Sum();
+                    }
+                }
+            }
 
-            public ItemWrapper(ApplicationDbContext db, StockItem item)
+            public ItemWrapper(IDbContextFactory<ApplicationDbContext> db, StockItem item)
             {
                 _db = db;
                 Item = item;
